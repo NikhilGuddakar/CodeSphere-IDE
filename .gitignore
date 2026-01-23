@@ -4,13 +4,13 @@
 .env
 
 # ===== Backend =====
-backend/target/
-backend/.idea/
-backend/.vscode/
-backend/*.log
+Backend/target/
+Backend/.idea/
+Backend/.vscode/
+Backend/*.log
 
 # Backend runtime workspace
-backend/codesphere_workspace/
+Backend/codesphere_workspace/
 
 # ===== Frontend =====
 frontend/node_modules/
