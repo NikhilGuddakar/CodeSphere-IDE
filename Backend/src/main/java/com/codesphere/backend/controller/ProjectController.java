@@ -39,10 +39,11 @@ public class ProjectController {
     @PostMapping
     public ResponseEntity<ApiResponse<String>> createProject(
             @RequestBody ProjectRequest request) throws IOException {
-    	
+    	System.out.println("CREATE PROJECT CONTROLLER HIT");
+
     	Authentication auth =
     	        SecurityContextHolder.getContext().getAuthentication();
-
+    	System.out.println("AUTH USER = " + auth.getName());
     	String username = auth.getName();
 
     	UserEntity user = userRepository.findByUsername(username)
@@ -109,5 +110,7 @@ public class ProjectController {
                 new ApiResponse<>(true, "Projects fetched", projects)
         );
     }
+    
+    
 
 }

@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>CodeSphere Login</title>
+</head>
+<body>
+
+<div class="logincontainer" align="center" style="margin-top: 100px;">
+    <h2>Login to CodeSphere</h2>
+        <div class="userbox">
+            <input id="username" placeholder="Username" />
+        </div>
+        <br><br>    
+
+        <div class="passbox">
+            <input id="password" type="password" placeholder="Password" />
+        </div>
+        <br><br>
+        
+        <button id="loginBtn">Login</button>
+
+    <p id="error" style="color:red;"></p>
+</div>
+
+<script type="module">
+    import { login } from "./js/auth.js";
+
+    document.getElementById("loginBtn").onclick = async () => {
+        console.log("Login button clicked"); // 👈 ADD THIS
+
+        const username = document.getElementById("username").value.trim();
+        const password = document.getElementById("password").value.trim();
+        const error = document.getElementById("error");
+
+        error.textContent = "";
+
+        if (!username || !password) {
+            error.textContent = "Enter username and password";
+            return;
+        }
+
+        try {
+            await login(username, password);
+            console.log("Login API success"); // 👈 ADD THIS
+            localStorage.removeItem("codesphere_projects_cache");
+            window.location.href = "index.html";
+        } catch (e) {
+            console.error("Login failed:", e);
+            error.textContent = e.message;
+        }
+    };
+</script>
+
+
+</body>
+</html>
