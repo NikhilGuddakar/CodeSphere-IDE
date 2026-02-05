@@ -1,5 +1,6 @@
-import { createProject, fetchProjects } from "./api.js";
+import { createProject, fetchProjects, deleteProject } from "./api.js";
 import { state } from "./state.js";
+import * as ui from "./ui.js";
 
 /* =========================
    LOAD PROJECTS
@@ -53,6 +54,45 @@ export async function handleCreateProject() {
 }
 
 /* =========================
+   DELETE PROJECT
+========================= */
+
+export async function handleDeleteProject() {
+    if (!state.currentProject) {
+        alert("Select a project first");
+        return;
+    }
+
+    const ok = confirm(`Delete project ${state.currentProject}? This will remove all its files.`);
+    if (!ok) return;
+
+    try {
+        const response = await deleteProject(state.currentProject);
+
+        if (!response.success) {
+            alert(response.message || "Failed to delete project");
+            return;
+        }
+
+        state.currentProject = null;
+        state.currentFile = null;
+
+        ui.clearEditor();
+    ui.renderFileList([], () => {}, null);
+        ui.renderOutput("");
+        ui.setStatus("Project deleted", "success");
+
+    } catch (err) {
+        console.error(err);
+        alert("Failed to delete project");
+        ui.setStatus("Delete failed", "error");
+    } finally {
+        // Refresh list to reflect server state even if deletion errored.
+        await loadProjects();
+    }
+}
+
+/* =========================
    SELECT PROJECT
 ========================= */
 
@@ -67,4 +107,10 @@ function selectProject(projectName, element) {
     element.classList.add("active");
 
     console.log("Selected project:", projectName);
+
+    if (typeof window.loadFiles === "function") {
+        window.loadFiles().catch(err => {
+            console.error("Failed to load files:", err);
+        });
+    }
 }

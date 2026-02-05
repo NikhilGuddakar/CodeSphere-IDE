@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>CodeSphere</title>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="./css/style.css" />
+</head>
+<body>
+
+<h2>CodeSphere IDE</h2>
+
+<button id="logoutBtn">Logout</button>
+
+<hr />
+
+<!-- Project section -->
+<div>
+    <h3>Projects</h3>
+    <input id="projectNameInput" placeholder="New project name" />
+    <button id="createProjectBtn">Create Project</button>
+    <button id="deleteProjectBtn" type="button">Delete Project</button>
+
+    <ul id="projectList"></ul>
+</div>
+
+<hr />
+
+<!-- File section -->
+<div>
+    <h3>Files</h3>
+    <input id="fileNameInput" placeholder="New file name (Main.java / app.py)" />
+    <button id="createFileBtn">Create File</button>
+    <button id="deleteFileBtn" type="button">Delete File</button>
+
+    <ul id="fileList"></ul>
+</div>
+
+<hr />
+
+<!-- Editor -->
+<div>
+    <h3>Editor</h3>
+    <textarea id="editor" rows="15" cols="80"></textarea>
+    <br />
+    <button id="saveBtn" type="button">Save</button>
+    <small id="saveStatus"></small>
+</div>
+
+<hr />
+
+<!-- Execution -->
+<div>
+    <h3>Run</h3>
+    <textarea id="inputData" rows="4" cols="80" placeholder="Input (stdin)"></textarea>
+    <br />
+    <button id="runBtn">Run</button>
+</div>
+
+<hr />
+
+<!-- Output -->
+<div>
+    <h3>Output</h3>
+    <pre id="output"></pre>
+</div>
+
+<div>
+    <small id="status"></small>
+</div>
+
+<script type="module" src="./js/main.js"></script>
+
+</body>
+</html>

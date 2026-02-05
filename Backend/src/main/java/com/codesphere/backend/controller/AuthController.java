@@ -31,11 +31,19 @@ public class AuthController {
     public ResponseEntity<ApiResponse<String>> register(
             @RequestBody RegisterRequest request) {
 
+        if (request.getUsername() == null || request.getUsername().isBlank()) {
+            return ResponseEntity.badRequest()
+                    .body(new ApiResponse<>(false, "Username is required", null));
+        }
+        if (request.getPassword() == null || request.getPassword().length() < 6) {
+            return ResponseEntity.badRequest()
+                    .body(new ApiResponse<>(false, "Password must be at least 6 characters", null));
+        }
+
         if (userRepository.existsByUsername(request.getUsername())) {
             return ResponseEntity.badRequest()
                     .body(new ApiResponse<>(false, "Username already exists", null));
         }
-
         UserEntity user = new UserEntity();
         user.setUsername(request.getUsername());
         user.setPassword(passwordEncoder.encode(request.getPassword()));
@@ -68,4 +76,3 @@ public class AuthController {
     
 
 }
-

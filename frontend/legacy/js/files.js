@@ -20,13 +20,19 @@ export async function createNewFile() {
     }
 
     try {
-        await api.saveFile(
+        const response = await api.saveFile(
             state.currentProject,
             filename,
             ""
         );
 
-        await loadFiles(state.currentProject);
+        if (!response.success) {
+            throw new Error(response.message || "Failed to create file");
+        }
+
+        if (typeof window.loadFiles === "function") {
+            await window.loadFiles();
+        }
 
         state.currentFile = filename;
         ui.setEditorContent("");
@@ -35,6 +41,6 @@ export async function createNewFile() {
         console.log("File created:", filename);
     } catch (e) {
         console.error(e);
-        alert("Failed to create file");
+        alert(e?.message || "Failed to create file");
     }
 }

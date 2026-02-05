@@ -21,7 +21,23 @@ function request(path, options = {}) {
             if (res.status === 401 || res.status === 403) {
                 throw new Error("Unauthorized");
             }
-            throw new Error("Request failed");
+            let message = "Request failed";
+            try {
+                const data = await res.clone().json();
+                if (data && data.message) {
+                    message = data.message;
+                }
+            } catch {
+                try {
+                    const text = await res.text();
+                    if (text) {
+                        message = text;
+                    }
+                } catch {
+                    // ignore
+                }
+            }
+            throw new Error(message);
         }
         return res;
     });
@@ -58,24 +74,23 @@ export function fetchProjects() {
 
 
 export function fetchFiles(projectName) {
-    return request(`/api/files?projectName=${projectName}`)
+    return request(`/api/projects/${projectName}/files`)
         .then(res => res.json());
 }
 
 export function readFile(projectName, filename) {
     return request(
-        `/api/files/read?projectName=${projectName}&filename=${filename}`
+        `/api/projects/${projectName}/files/read?filename=${encodeURIComponent(filename)}`
     ).then(res => res.text());
 }
 
 export function saveFile(projectName, filename, content) {
-    return request(`/api/files/${projectName}`, {
+    return request(`/api/projects/${projectName}/files`, {
         method: "PUT",
         headers: {
             "Content-Type": "application/json"
         },
         body: JSON.stringify({
-            projectName: projectName,
             filename: filename,
             content: content
         })
@@ -85,9 +100,15 @@ export function saveFile(projectName, filename, content) {
 
 export function deleteFile(projectName, filename) {
     return request(
-        `/api/files/delete?projectName=${projectName}&filename=${filename}`,
+        `/api/projects/${projectName}/files?filename=${encodeURIComponent(filename)}`,
         { method: "DELETE" }
     ).then(res => res.json());
+}
+
+export function deleteProject(projectName) {
+    return request(`/api/projects/${projectName}`, {
+        method: "DELETE"
+    }).then(res => res.json());
 }
 
 
@@ -99,6 +120,9 @@ export function deleteFile(projectName, filename) {
 export async function executeCode(projectName, filename, input) {
     const res = await request(`/api/projects/${projectName}/execute`, {
         method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
         body: JSON.stringify({
             filename,
             input

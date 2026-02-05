@@ -23,7 +23,8 @@ import java.util.concurrent.TimeUnit;
 @RequestMapping("/api/projects/{projectName}")
 public class ExecutionController {
 
-    private static final String BASE_DIR = "codesphere_workspace";
+    private static final String BASE_DIR =
+            System.getProperty("user.home") + "/codesphere_workspace";
 
     private final ProjectRepository projectRepository;
     private final UserRepository userRepository;

@@ -6,6 +6,7 @@ import com.codesphere.backend.entity.ProjectEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
+import java.util.Optional;
 
 public interface FileRepository extends JpaRepository<FileEntity, Long> {
 
@@ -14,5 +15,11 @@ public interface FileRepository extends JpaRepository<FileEntity, Long> {
     List<FileEntity> findByProjectId(Long projectId);
 
     List<FileEntity> findByProject(ProjectEntity project);
+
+    Optional<FileEntity> findByFilenameAndProject(String filename, ProjectEntity project);
+
+    Optional<FileEntity> findByFilenameAndProjectId(String filename, Long projectId);
+
+    void deleteByProject(ProjectEntity project);
 
 }

@@ -10,6 +10,7 @@ import com.codesphere.backend.repository.ProjectRepository;
 import com.codesphere.backend.repository.UserRepository;
 
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.MediaType;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
@@ -22,7 +23,7 @@ import java.util.List;
 public class FileController {
 
 	private static final String BASE_DIR =
-	        System.getProperty("user.dir") + "/codesphere_workspace";
+	        System.getProperty("user.home") + "/codesphere_workspace";
 
 
     private final ProjectRepository projectRepository;
@@ -42,35 +43,73 @@ public class FileController {
             @PathVariable String projectName,
             @RequestBody FileRequest request) {
 
+        if (request == null || request.getFilename() == null || request.getFilename().isBlank()) {
+            return ResponseEntity.badRequest()
+                .body(new ApiResponse<>(false, "Filename is required", null));
+        }
+
         // 1️⃣ Get logged-in user
         String username = SecurityContextHolder
                 .getContext()
                 .getAuthentication()
                 .getName();
 
-        UserEntity user = userRepository.findByUsername(username)
-                .orElseThrow(() -> new RuntimeException("User not found"));
+        UserEntity user = userRepository.findByUsername(username).orElse(null);
+        if (user == null) {
+            return ResponseEntity.status(401)
+                .body(new ApiResponse<>(false, "User not found", null));
+        }
 
         // 2️⃣ Validate project ownership
         ProjectEntity project = projectRepository
                 .findByNameAndUser(projectName, user)
-                .orElseThrow(() -> new RuntimeException("Project not found"));
+                .orElse(null);
+        if (project == null) {
+            return ResponseEntity.status(404)
+                .body(new ApiResponse<>(false, "Project not found", null));
+        }
 
         try {
             // 3️⃣ Write file to filesystem
             Path projectPath = Path.of(BASE_DIR, projectName);
             Files.createDirectories(projectPath);
+            if (!Files.isWritable(projectPath)) {
+                return ResponseEntity.internalServerError()
+                    .body(new ApiResponse<>(false, "Workspace is not writable", null));
+            }
 
-            Path filePath = projectPath.resolve(request.getFilename());
-            Files.writeString(filePath, request.getContent());
+            Path filePath = projectPath.resolve(request.getFilename()).normalize();
+            if (!filePath.startsWith(projectPath)) {
+                return ResponseEntity.badRequest()
+                    .body(new ApiResponse<>(false, "Invalid filename path", null));
+            }
+
+            Path parentDir = filePath.getParent();
+            if (parentDir != null) {
+                Files.createDirectories(parentDir);
+            }
+
+            String content = request.getContent() == null ? "" : request.getContent();
+
+            FileEntity existing = fileRepository
+                .findByFilenameAndProjectId(request.getFilename(), project.getId())
+                .orElse(null);
+
+            // 4️⃣ Write file content
+            Files.writeString(filePath, content);
            
-            // 4️⃣ Save / update file metadata in DB
-            FileEntity file = new FileEntity();
-            file.setFilename(request.getFilename());
-            file.setProject(project);
+            // 5️⃣ Save / update file metadata in DB
             String language = getLanguageFromFilename(request.getFilename());
-            file.setLanguage(language);
-            fileRepository.save(file);
+            if (existing == null) {
+                FileEntity file = new FileEntity();
+                file.setFilename(request.getFilename());
+                file.setProject(project);
+                file.setLanguage(language);
+                fileRepository.save(file);
+            } else if (!language.equals(existing.getLanguage())) {
+                existing.setLanguage(language);
+                fileRepository.save(existing);
+            }
 
             return ResponseEntity.ok(
                     new ApiResponse<>(true, "File saved successfully", request.getFilename())
@@ -79,7 +118,7 @@ public class FileController {
         } catch (Exception e) {
             e.printStackTrace(); // ⭐ IMPORTANT
             return ResponseEntity.internalServerError()
-                .body(new ApiResponse<>(false, "Failed to save file", null));
+                .body(new ApiResponse<>(false, "Failed to save file: " + e.getMessage(), null));
         }
 
     }
@@ -106,13 +145,20 @@ public class FileController {
                 .getAuthentication()
                 .getName();
 
-        UserEntity user = userRepository.findByUsername(username)
-                .orElseThrow(() -> new RuntimeException("User not found"));
+        UserEntity user = userRepository.findByUsername(username).orElse(null);
+        if (user == null) {
+            return ResponseEntity.status(401)
+                .body(new ApiResponse<>(false, "User not found", null));
+        }
 
         // 2️⃣ Validate project ownership
         ProjectEntity project = projectRepository
                 .findByNameAndUser(projectName, user)
-                .orElseThrow(() -> new RuntimeException("Project not found"));
+                .orElse(null);
+        if (project == null) {
+            return ResponseEntity.status(404)
+                .body(new ApiResponse<>(false, "Project not found", null));
+        }
 
         // 3️⃣ Fetch files ONLY for this project
         List<String> files = fileRepository.findByProject(project)
@@ -125,5 +171,115 @@ public class FileController {
         );
     }
 
+    @GetMapping("/read")
+    public ResponseEntity<String> readFile(
+            @PathVariable String projectName,
+            @RequestParam String filename) {
+
+        if (filename == null || filename.isBlank()) {
+            return ResponseEntity.badRequest().body("Filename is required");
+        }
+
+        String username = SecurityContextHolder
+                .getContext()
+                .getAuthentication()
+                .getName();
+
+        UserEntity user = userRepository.findByUsername(username).orElse(null);
+        if (user == null) {
+            return ResponseEntity.status(401).body("User not found");
+        }
+
+        ProjectEntity project = projectRepository
+                .findByNameAndUser(projectName, user)
+                .orElse(null);
+        if (project == null) {
+            return ResponseEntity.status(404).body("Project not found");
+        }
+
+        try {
+            Path projectPath = Path.of(BASE_DIR, projectName);
+            Path filePath = projectPath.resolve(filename).normalize();
+            if (!filePath.startsWith(projectPath)) {
+                return ResponseEntity.badRequest().body("Invalid filename path");
+            }
+
+            if (!Files.exists(filePath)) {
+                return ResponseEntity.notFound().build();
+            }
+
+            String content = Files.readString(filePath);
+            return ResponseEntity
+                    .ok()
+                    .contentType(MediaType.TEXT_PLAIN)
+                    .body(content);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.internalServerError()
+                .body("Failed to read file");
+        }
+    }
+
+    @DeleteMapping
+    public ResponseEntity<ApiResponse<String>> deleteFile(
+            @PathVariable String projectName,
+            @RequestParam String filename) {
+
+        if (filename == null || filename.isBlank()) {
+            return ResponseEntity.badRequest()
+                .body(new ApiResponse<>(false, "Filename is required", null));
+        }
+
+        String username = SecurityContextHolder
+                .getContext()
+                .getAuthentication()
+                .getName();
+
+        UserEntity user = userRepository.findByUsername(username).orElse(null);
+        if (user == null) {
+            return ResponseEntity.status(401)
+                .body(new ApiResponse<>(false, "User not found", null));
+        }
+
+        ProjectEntity project = projectRepository
+                .findByNameAndUser(projectName, user)
+                .orElse(null);
+        if (project == null) {
+            return ResponseEntity.status(404)
+                .body(new ApiResponse<>(false, "Project not found", null));
+        }
+
+        try {
+            Path projectPath = Path.of(BASE_DIR, projectName);
+            Path filePath = projectPath.resolve(filename).normalize();
+            if (!filePath.startsWith(projectPath)) {
+                return ResponseEntity.badRequest()
+                    .body(new ApiResponse<>(false, "Invalid filename path", null));
+            }
+
+            boolean deletedFromDisk = Files.deleteIfExists(filePath);
+
+            boolean deletedFromDb = fileRepository
+                .findByFilenameAndProject(filename, project)
+                .map(file -> {
+                    fileRepository.delete(file);
+                    return true;
+                })
+                .orElse(false);
+
+            if (!deletedFromDisk && !deletedFromDb) {
+                return ResponseEntity.status(404)
+                    .body(new ApiResponse<>(false, "File not found", null));
+            }
+
+            return ResponseEntity.ok(
+                new ApiResponse<>(true, "File deleted", filename)
+            );
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.internalServerError()
+                .body(new ApiResponse<>(false, "Failed to delete file", null));
+        }
+    }
 
 }

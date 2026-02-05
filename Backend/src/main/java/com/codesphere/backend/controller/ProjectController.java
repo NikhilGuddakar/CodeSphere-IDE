@@ -4,6 +4,8 @@ import com.codesphere.backend.dto.ApiResponse;
 import com.codesphere.backend.dto.ProjectRequest;
 import com.codesphere.backend.entity.ProjectEntity;
 import com.codesphere.backend.entity.UserEntity;
+import com.codesphere.backend.repository.ExecutionRepository;
+import com.codesphere.backend.repository.FileRepository;
 import com.codesphere.backend.repository.ProjectRepository;
 import com.codesphere.backend.repository.UserRepository;
 
@@ -12,12 +14,16 @@ import com.codesphere.backend.repository.UserRepository;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.Authentication;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.FileVisitResult;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.List;
 
 @RestController
@@ -25,15 +31,22 @@ import java.util.List;
 public class ProjectController {
 
 	private static final String BASE_DIR =
-	        System.getProperty("user.dir") + "/codesphere_workspace";
+	        System.getProperty("user.home") + "/codesphere_workspace";
 
     private final ProjectRepository projectRepository;
     private final UserRepository userRepository;
+    private final FileRepository fileRepository;
+    private final ExecutionRepository executionRepository;
 
 
-    public ProjectController(ProjectRepository projectRepository, UserRepository userRepository) {
+    public ProjectController(ProjectRepository projectRepository,
+                             UserRepository userRepository,
+                             FileRepository fileRepository,
+                             ExecutionRepository executionRepository) {
         this.projectRepository = projectRepository;
         this.userRepository = userRepository;
+        this.fileRepository = fileRepository;
+        this.executionRepository = executionRepository;
     }
 
     @PostMapping
@@ -109,6 +122,75 @@ public class ProjectController {
         return ResponseEntity.ok(
                 new ApiResponse<>(true, "Projects fetched", projects)
         );
+    }
+
+    @DeleteMapping("/{projectName}")
+    @Transactional
+    public ResponseEntity<ApiResponse<String>> deleteProject(
+            @PathVariable String projectName) {
+
+        String username = SecurityContextHolder
+                .getContext()
+                .getAuthentication()
+                .getName();
+
+        UserEntity user = userRepository.findByUsername(username).orElse(null);
+        if (user == null) {
+            return ResponseEntity.status(401)
+                .body(new ApiResponse<>(false, "User not found", null));
+        }
+
+        ProjectEntity project = projectRepository
+                .findByNameAndUser(projectName, user)
+                .orElse(null);
+        if (project == null) {
+            return ResponseEntity.status(404)
+                .body(new ApiResponse<>(false, "Project not found", null));
+        }
+
+        try {
+            // Delete related DB records first (avoid FK issues)
+            executionRepository.deleteByProject(project);
+            fileRepository.deleteByProject(project);
+            projectRepository.delete(project);
+
+            String cleanupWarning = null;
+            try {
+                // Delete files on disk
+                Path projectPath = Path.of(BASE_DIR, projectName);
+                if (Files.exists(projectPath)) {
+                    Files.walkFileTree(projectPath, new SimpleFileVisitor<Path>() {
+                        @Override
+                        public FileVisitResult visitFile(Path file, BasicFileAttributes attrs)
+                                throws java.io.IOException {
+                            Files.deleteIfExists(file);
+                            return FileVisitResult.CONTINUE;
+                        }
+
+                        @Override
+                        public FileVisitResult postVisitDirectory(Path dir, java.io.IOException exc)
+                                throws java.io.IOException {
+                            Files.deleteIfExists(dir);
+                            return FileVisitResult.CONTINUE;
+                        }
+                    });
+                }
+            } catch (Exception cleanupError) {
+                cleanupWarning = cleanupError.getMessage();
+            }
+
+            String message = cleanupWarning == null
+                ? "Project deleted"
+                : "Project deleted (workspace cleanup failed: " + cleanupWarning + ")";
+
+            return ResponseEntity.ok(
+                new ApiResponse<>(true, message, projectName)
+            );
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.internalServerError()
+                .body(new ApiResponse<>(false, "Failed to delete project: " + e.getMessage(), null));
+        }
     }
     
     
