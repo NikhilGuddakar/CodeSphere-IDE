@@ -378,7 +378,8 @@ public class ExecutionController {
             Process proc = new ProcessBuilder("sh", "-c", "command -v " + command)
                     .redirectErrorStream(true)
                     .start();
-            return proc.waitFor(1, TimeUnit.SECONDS) == 0;
+            boolean finished = proc.waitFor(1, TimeUnit.SECONDS);
+            return finished && proc.exitValue() == 0;
         } catch (Exception e) {
             return false;
         }
