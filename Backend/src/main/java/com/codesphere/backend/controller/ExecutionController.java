@@ -135,7 +135,7 @@ public class ExecutionController {
 
         } catch (Exception e) {
             return ResponseEntity.internalServerError()
-                    .body(new ApiResponse<>(false, "Execution failed", null));
+                    .body(new ApiResponse<>(false, "Execution failed: " + e.getMessage(), null));
         }
     }
 
@@ -149,6 +149,12 @@ public class ExecutionController {
     private ExecutionResult executeJava(Path projectPath,
                                         Path filePath,
                                         String input) throws Exception {
+        if (!commandAvailable("javac")) {
+            return new ExecutionResult(null, "javac is not installed on server", "ERROR");
+        }
+        if (!commandAvailable("java")) {
+            return new ExecutionResult(null, "java runtime is not installed on server", "ERROR");
+        }
 
         Process compile = new ProcessBuilder(
                 "javac", filePath.getFileName().toString())
@@ -188,6 +194,9 @@ public class ExecutionController {
     }
 
     private ExecutionResult executePython(Path filePath, String input) throws Exception {
+        if (!commandAvailable("python3")) {
+            return new ExecutionResult(null, "python3 is not installed on server", "ERROR");
+        }
 
         Process run = new ProcessBuilder("python3", filePath.toString())
                 .redirectErrorStream(true)
