@@ -6,6 +6,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import jakarta.validation.Valid;
 
 import com.codesphere.backend.dto.ApiResponse;
 import com.codesphere.backend.dto.LoginRequest;
@@ -29,16 +30,7 @@ public class AuthController {
 
     @PostMapping("/register")
     public ResponseEntity<ApiResponse<String>> register(
-            @RequestBody RegisterRequest request) {
-
-        if (request.getUsername() == null || request.getUsername().isBlank()) {
-            return ResponseEntity.badRequest()
-                    .body(new ApiResponse<>(false, "Username is required", null));
-        }
-        if (request.getPassword() == null || request.getPassword().length() < 6) {
-            return ResponseEntity.badRequest()
-                    .body(new ApiResponse<>(false, "Password must be at least 6 characters", null));
-        }
+            @Valid @RequestBody RegisterRequest request) {
 
         if (userRepository.existsByUsername(request.getUsername())) {
             return ResponseEntity.badRequest()
@@ -57,10 +49,14 @@ public class AuthController {
     
     @PostMapping("/login")
     public ResponseEntity<ApiResponse<String>> login(
-            @RequestBody LoginRequest request) {
+            @Valid @RequestBody LoginRequest request) {
 
         UserEntity user = userRepository.findByUsername(request.getUsername())
-                .orElseThrow(() -> new RuntimeException("Invalid credentials"));
+                .orElse(null);
+        if (user == null) {
+            return ResponseEntity.status(401)
+                .body(new ApiResponse<>(false, "Invalid credentials", null));
+        }
 
         if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
             return ResponseEntity.status(401)

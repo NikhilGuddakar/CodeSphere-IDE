@@ -9,13 +9,12 @@ import java.util.Date;
 
 public class JwtUtil {
 
-    private static final String SECRET =
-            "codesphere-super-secret-key-should-be-long";
+    private static final String SECRET = resolveSecret();
 
     private static final Key KEY =
             Keys.hmacShaKeyFor(SECRET.getBytes(StandardCharsets.UTF_8));
 
-    private static final long EXPIRATION = 1000 * 60 * 60; // 1 hour
+    private static final long EXPIRATION = resolveExpiration();
 
     public static String generateToken(String username) {
         return Jwts.builder()
@@ -38,5 +37,28 @@ public class JwtUtil {
         } catch (JwtException e) {
             return null;
         }
+    }
+
+    private static String resolveSecret() {
+        String env = System.getenv("JWT_SECRET");
+        String prop = System.getProperty("jwt.secret");
+        String candidate = (env != null && !env.isBlank()) ? env : prop;
+        if (candidate != null && candidate.length() >= 32) {
+            return candidate;
+        }
+        return "codesphere-super-secret-key-should-be-long";
+    }
+
+    private static long resolveExpiration() {
+        String env = System.getenv("JWT_EXPIRATION_MS");
+        String prop = System.getProperty("jwt.expirationMs");
+        String candidate = (env != null && !env.isBlank()) ? env : prop;
+        if (candidate != null) {
+            try {
+                return Long.parseLong(candidate);
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        return 1000L * 60 * 60; // 1 hour
     }
 }

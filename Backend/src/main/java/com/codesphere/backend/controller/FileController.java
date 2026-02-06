@@ -13,18 +13,17 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
+import jakarta.validation.Valid;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 
+import com.codesphere.backend.util.WorkspacePaths;
+
 @RestController
 @RequestMapping("/api/projects/{projectName}/files")
 public class FileController {
-
-	private static final String BASE_DIR =
-	        System.getProperty("user.home") + "/codesphere_workspace";
-
 
     private final ProjectRepository projectRepository;
     private final UserRepository userRepository;
@@ -41,11 +40,24 @@ public class FileController {
     @PutMapping
     public ResponseEntity<ApiResponse<String>> saveFile(
             @PathVariable String projectName,
-            @RequestBody FileRequest request) {
+            @Valid @RequestBody FileRequest request) {
 
         if (request == null || request.getFilename() == null || request.getFilename().isBlank()) {
             return ResponseEntity.badRequest()
                 .body(new ApiResponse<>(false, "Filename is required", null));
+        }
+        if (request.getContent() != null
+            && request.getContent().getBytes().length > WorkspacePaths.MAX_CONTENT_BYTES) {
+            return ResponseEntity.badRequest()
+                .body(new ApiResponse<>(false, "File content too large", null));
+        }
+        if (!WorkspacePaths.isSafeProjectName(projectName)) {
+            return ResponseEntity.badRequest()
+                .body(new ApiResponse<>(false, "Invalid project name", null));
+        }
+        if (!WorkspacePaths.isSafeFilename(request.getFilename())) {
+            return ResponseEntity.badRequest()
+                .body(new ApiResponse<>(false, "Invalid filename", null));
         }
 
         // 1️⃣ Get logged-in user
@@ -71,7 +83,7 @@ public class FileController {
 
         try {
             // 3️⃣ Write file to filesystem
-            Path projectPath = Path.of(BASE_DIR, projectName);
+            Path projectPath = WorkspacePaths.projectDir(user, projectName);
             Files.createDirectories(projectPath);
             if (!Files.isWritable(projectPath)) {
                 return ResponseEntity.internalServerError()
@@ -131,6 +143,12 @@ public class FileController {
             case "java" -> "java";
             case "py" -> "python";
             case "js" -> "javascript";
+            case "html" -> "html";
+            case "css" -> "css";
+            case "c" -> "c";
+            case "cpp", "cc", "cxx" -> "cpp";
+            case "go" -> "go";
+            case "cs" -> "csharp";
             default -> "unknown";
         };
     }
@@ -139,6 +157,10 @@ public class FileController {
     public ResponseEntity<ApiResponse<List<String>>> listFiles(
             @PathVariable String projectName) {
 
+        if (!WorkspacePaths.isSafeProjectName(projectName)) {
+            return ResponseEntity.badRequest()
+                .body(new ApiResponse<>(false, "Invalid project name", null));
+        }
         // 1️⃣ Get logged-in user
         String username = SecurityContextHolder
                 .getContext()
@@ -179,6 +201,12 @@ public class FileController {
         if (filename == null || filename.isBlank()) {
             return ResponseEntity.badRequest().body("Filename is required");
         }
+        if (!WorkspacePaths.isSafeProjectName(projectName)) {
+            return ResponseEntity.badRequest().body("Invalid project name");
+        }
+        if (!WorkspacePaths.isSafeFilename(filename)) {
+            return ResponseEntity.badRequest().body("Invalid filename");
+        }
 
         String username = SecurityContextHolder
                 .getContext()
@@ -198,7 +226,7 @@ public class FileController {
         }
 
         try {
-            Path projectPath = Path.of(BASE_DIR, projectName);
+            Path projectPath = WorkspacePaths.projectDir(user, projectName);
             Path filePath = projectPath.resolve(filename).normalize();
             if (!filePath.startsWith(projectPath)) {
                 return ResponseEntity.badRequest().body("Invalid filename path");
@@ -209,6 +237,9 @@ public class FileController {
             }
 
             String content = Files.readString(filePath);
+            if (content.getBytes().length > WorkspacePaths.MAX_CONTENT_BYTES) {
+                return ResponseEntity.status(413).body("File content too large");
+            }
             return ResponseEntity
                     .ok()
                     .contentType(MediaType.TEXT_PLAIN)
@@ -228,6 +259,14 @@ public class FileController {
         if (filename == null || filename.isBlank()) {
             return ResponseEntity.badRequest()
                 .body(new ApiResponse<>(false, "Filename is required", null));
+        }
+        if (!WorkspacePaths.isSafeProjectName(projectName)) {
+            return ResponseEntity.badRequest()
+                .body(new ApiResponse<>(false, "Invalid project name", null));
+        }
+        if (!WorkspacePaths.isSafeFilename(filename)) {
+            return ResponseEntity.badRequest()
+                .body(new ApiResponse<>(false, "Invalid filename", null));
         }
 
         String username = SecurityContextHolder
@@ -250,7 +289,7 @@ public class FileController {
         }
 
         try {
-            Path projectPath = Path.of(BASE_DIR, projectName);
+            Path projectPath = WorkspacePaths.projectDir(user, projectName);
             Path filePath = projectPath.resolve(filename).normalize();
             if (!filePath.startsWith(projectPath)) {
                 return ResponseEntity.badRequest()

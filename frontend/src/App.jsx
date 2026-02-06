@@ -2,6 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import CodeMirror from "@uiw/react-codemirror";
 import { vscodeDark, vscodeLight } from "@uiw/codemirror-theme-vscode";
 import { javascript } from "@codemirror/lang-javascript";
+import { html } from "@codemirror/lang-html";
+import { css } from "@codemirror/lang-css";
+import { cpp } from "@codemirror/lang-cpp";
+import { go } from "@codemirror/lang-go";
+import { csharp } from "@replit/codemirror-lang-csharp";
 import { python } from "@codemirror/lang-python";
 import { java } from "@codemirror/lang-java";
 import { EditorView } from "@codemirror/view";
@@ -62,6 +67,8 @@ export default function App() {
   const [currentFile, setCurrentFile] = useState("");
   const [editorContent, setEditorContent] = useState("");
   const [output, setOutput] = useState("");
+  const [previewHtml, setPreviewHtml] = useState("");
+  const [outputMode, setOutputMode] = useState("text");
   const [inputData, setInputData] = useState("");
   const [openFiles, setOpenFiles] = useState([]);
   const [fileContents, setFileContents] = useState({});
@@ -78,6 +85,8 @@ export default function App() {
   const [replaceQuery, setReplaceQuery] = useState("");
   const [searchIndex, setSearchIndex] = useState(-1);
   const [expandedFolders, setExpandedFolders] = useState({});
+  const [showRunConfig, setShowRunConfig] = useState(false);
+  const [runConfigFile, setRunConfigFile] = useState("");
 
   const [statusMessage, setStatusMessage] = useState("Ready");
   const [statusType, setStatusType] = useState("success");
@@ -89,6 +98,10 @@ export default function App() {
     confirmLabel: "Delete",
     onConfirm: null
   });
+  const [autoSaveEnabled, setAutoSaveEnabled] = useState(() => {
+    const stored = localStorage.getItem("codesphere_autosave");
+    return stored !== "false";
+  });
 
   const projectInputRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -97,6 +110,7 @@ export default function App() {
   const viewRef = useRef(null);
   const fileContentsRef = useRef({});
   const lastSavedRef = useRef({});
+  const autoSaveTimerRef = useRef(null);
 
   const getEditorText = useCallback(() => {
     if (viewRef.current) {
@@ -126,6 +140,11 @@ export default function App() {
     }
     if (ext === "py") return [python()];
     if (ext === "java") return [java()];
+    if (ext === "html") return [html()];
+    if (ext === "css") return [css()];
+    if (ext === "c" || ext === "cpp" || ext === "cc" || ext === "cxx") return [cpp()];
+    if (ext === "go") return [go()];
+    if (ext === "cs") return [csharp()];
     return [];
   }, [currentFile]);
 
@@ -189,6 +208,10 @@ export default function App() {
   }, [theme]);
 
   useEffect(() => {
+    localStorage.setItem("codesphere_autosave", autoSaveEnabled ? "true" : "false");
+  }, [autoSaveEnabled]);
+
+  useEffect(() => {
     if (showCommandPalette) {
       paletteInputRef.current?.focus();
     }
@@ -212,6 +235,7 @@ export default function App() {
     }
   }, [showSearchPanel]);
 
+
   useEffect(() => {
     setSearchIndex(-1);
   }, [searchQuery, currentFile]);
@@ -219,6 +243,10 @@ export default function App() {
   useEffect(() => {
     if (view === "editor") {
       loadProjects();
+      api.health().catch(() => {
+        setStatusMessage("Backend unavailable");
+        setStatusType("error");
+      });
     }
   }, [view, loadProjects]);
 
@@ -289,9 +317,15 @@ export default function App() {
     setAuthError("");
     setIsLoading(true);
     try {
-      const response = await api.login(authUser, authPass);
+      const trimmedUser = authUser.trim();
+      if (!trimmedUser || !authPass) {
+        setAuthError("Username and password are required.");
+        setIsLoading(false);
+        return;
+      }
+      const response = await api.login(trimmedUser, authPass);
       localStorage.setItem("codesphere_token", response.data);
-      localStorage.setItem("codesphere_user", authUser);
+      localStorage.setItem("codesphere_user", trimmedUser);
       setView("editor");
       setAuthUser("");
       setAuthPass("");
@@ -305,12 +339,20 @@ export default function App() {
   const handleRegister = async () => {
     setAuthError("");
     const trimmedUser = authUser.trim();
+    if (!trimmedUser || !authPass) {
+      setAuthError("Username and password are required.");
+      return;
+    }
     if (trimmedUser.length < 3) {
       setAuthError("Username must be at least 3 characters.");
       return;
     }
     if (authPass.length < 6) {
       setAuthError("Password must be at least 6 characters.");
+      return;
+    }
+    if (authPass.length > 64) {
+      setAuthError("Password is too long.");
       return;
     }
     if (authPass !== authConfirm) {
@@ -348,9 +390,27 @@ export default function App() {
     setInputData("");
   };
 
+  useEffect(() => {
+    const handler = () => {
+      setAuthError("Session expired. Please login again.");
+      handleLogout();
+    };
+    window.addEventListener("codesphere:unauthorized", handler);
+    return () => window.removeEventListener("codesphere:unauthorized", handler);
+  }, []);
+
   const handleCreateProject = async () => {
     const name = newProjectName.trim();
-    if (!name) return;
+    if (!name) {
+      setStatusMessage("Project name is required");
+      setStatusType("error");
+      return;
+    }
+    if (name.length > 64 || !/^[A-Za-z0-9 _.-]+$/.test(name)) {
+      setStatusMessage("Project name has invalid characters or is too long");
+      setStatusType("error");
+      return;
+    }
     setIsLoading(true);
     try {
       const response = await api.createProject(name);
@@ -376,9 +436,20 @@ export default function App() {
     setFileContents({});
     setLastSaved({});
     setOutput("");
+    setPreviewHtml("");
+    setOutputMode("text");
+    setRunConfigFile("");
     setStatusMessage(`Project ${projectName} selected`);
     setStatusType("success");
     await loadFiles(projectName);
+    try {
+      const response = await api.getRunConfig(projectName);
+      if (response.success && response.data) {
+        setRunConfigFile(response.data);
+      }
+    } catch {
+      // ignore
+    }
   };
 
   const openConfirm = (message, onConfirm, confirmLabel = "Delete") => {
@@ -405,6 +476,7 @@ export default function App() {
         setFileContents({});
         setLastSaved({});
         setOutput("");
+        setRunConfigFile("");
       }
       setStatusMessage(response.message || "Project deleted");
       setStatusType("success");
@@ -443,7 +515,16 @@ export default function App() {
       return;
     }
     const filename = newFileName.trim();
-    if (!filename) return;
+    if (!filename) {
+      setStatusMessage("File name is required");
+      setStatusType("error");
+      return;
+    }
+    if (filename.length > 180 || filename.includes("..") || filename.startsWith("/")) {
+      setStatusMessage("File name is invalid");
+      setStatusType("error");
+      return;
+    }
     setIsLoading(true);
     try {
       const response = await api.saveFile(currentProject, filename, "");
@@ -516,6 +597,9 @@ export default function App() {
     setSaveType("running");
     try {
       setFileContents((prev) => ({ ...prev, [currentFile]: editorContent }));
+      if ((editorContent || "").length > 1000000) {
+        throw new Error("File content too large to save");
+      }
       const response = await api.saveFile(currentProject, currentFile, editorContent);
       if (!response.success) throw new Error(response.message || "Failed to save file");
       setStatusMessage("File saved");
@@ -531,16 +615,68 @@ export default function App() {
     }
   };
 
+  useEffect(() => {
+    if (!autoSaveEnabled) return;
+    if (!currentProject || !currentFile) return;
+    const currentContent = fileContentsRef.current[currentFile] ?? editorContent;
+    const last = lastSavedRef.current[currentFile] ?? "";
+    if (currentContent === last) return;
+
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+    }
+    autoSaveTimerRef.current = setTimeout(() => {
+      handleSave();
+    }, 1500);
+
+    return () => {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+      }
+    };
+  }, [autoSaveEnabled, currentProject, currentFile, editorContent, handleSave]);
+
   const handleRun = async () => {
-    if (!currentProject || !currentFile) {
+    if (!currentProject) {
       setStatusMessage("Select a file first");
       setStatusType("error");
+      return;
+    }
+    const fileToRun = runConfigFile || currentFile;
+    if (!fileToRun) {
+      setStatusMessage("Select a file first");
+      setStatusType("error");
+      return;
+    }
+    if (runConfigFile && !files.includes(runConfigFile)) {
+      setStatusMessage("Run config file no longer exists");
+      setStatusType("error");
+      return;
+    }
+    if ((inputData || "").length > 1000000) {
+      setStatusMessage("Input too large");
+      setStatusType("error");
+      return;
+    }
+    const runExt = fileToRun.split(".").pop()?.toLowerCase();
+    const webTypes = ["html", "css", "js"];
+    if (webTypes.includes(runExt)) {
+      try {
+        const html = await buildPreviewHtml(fileToRun, runExt);
+        setPreviewHtml(html);
+        setOutputMode("preview");
+        setStatusMessage("Preview updated");
+        setStatusType("success");
+      } catch (err) {
+        setStatusMessage(err.message || "Failed to build preview");
+        setStatusType("error");
+      }
       return;
     }
     setStatusMessage("Running...");
     setStatusType("running");
     try {
-      const response = await api.executeCode(currentProject, currentFile, inputData);
+      const response = await api.executeCode(currentProject, fileToRun, inputData);
       if (!response.success) {
         const message = response.message || "Execution failed";
         setOutput(message);
@@ -549,13 +685,75 @@ export default function App() {
         return;
       }
       setOutput(response.data || "");
+      setOutputMode("text");
       setStatusMessage("Execution finished");
       setStatusType("success");
     } catch (err) {
       setOutput("Execution failed");
+      setOutputMode("text");
       setStatusMessage(err.message || "Execution failed");
       setStatusType("error");
     }
+  };
+
+  const buildPreviewHtml = async (filename, ext) => {
+    const getContent = async (name) => {
+      const cached = fileContentsRef.current[name];
+      if (cached !== undefined) return cached;
+      const content = await api.readFile(currentProject, name);
+      setFileContents((prev) => ({ ...prev, [name]: content }));
+      setLastSaved((prev) => ({ ...prev, [name]: content }));
+      return content;
+    };
+
+    if (ext === "html") {
+      let htmlContent = await getContent(filename);
+      const linkRegex = /<link\s+[^>]*href=["']([^"']+)["'][^>]*>/gi;
+      const scriptRegex = /<script\s+[^>]*src=["']([^"']+)["'][^>]*><\/script>/gi;
+
+      const styles = [];
+      const scripts = [];
+      let match;
+      while ((match = linkRegex.exec(htmlContent)) !== null) {
+        const href = match[1];
+        if (files.includes(href)) {
+          styles.push(await getContent(href));
+          htmlContent = htmlContent.replace(match[0], "");
+        }
+      }
+      while ((match = scriptRegex.exec(htmlContent)) !== null) {
+        const src = match[1];
+        if (files.includes(src)) {
+          scripts.push(await getContent(src));
+          htmlContent = htmlContent.replace(match[0], "");
+        }
+      }
+
+      const styleTag = styles.length ? `<style>${styles.join("\n")}</style>` : "";
+      const scriptTag = scripts.length ? `<script>${scripts.join("\n")}</script>` : "";
+
+      if (htmlContent.includes("</head>")) {
+        htmlContent = htmlContent.replace("</head>", `${styleTag}</head>`);
+      } else {
+        htmlContent = `${styleTag}\n${htmlContent}`;
+      }
+
+      if (htmlContent.includes("</body>")) {
+        htmlContent = htmlContent.replace("</body>", `${scriptTag}</body>`);
+      } else {
+        htmlContent = `${htmlContent}\n${scriptTag}`;
+      }
+
+      return htmlContent;
+    }
+
+    if (ext === "css") {
+      const cssContent = await getContent(filename);
+      return `<!doctype html><html><head><style>${cssContent}</style></head><body><div class="preview-box">CSS Preview</div></body></html>`;
+    }
+
+    const jsContent = await getContent(filename);
+    return `<!doctype html><html><head></head><body><div id="app"></div><script>${jsContent}</script></body></html>`;
   };
 
   const deleteFileByName = async (filename) => {
@@ -582,6 +780,18 @@ export default function App() {
       if (filename === currentFile) {
         setCurrentFile("");
         setEditorContent("");
+      }
+      if (filename === runConfigFile) {
+        setRunConfigFile("");
+        try {
+          await api.setRunConfig(currentProject, "");
+        } catch {
+          // ignore
+        }
+      }
+      if (filename === currentFile) {
+        setPreviewHtml("");
+        setOutputMode("text");
       }
       setStatusMessage("File deleted");
       setStatusType("success");
@@ -765,6 +975,11 @@ export default function App() {
         run: () => setTheme(theme === "dark" ? "light" : "dark")
       },
       {
+        id: "toggle-autosave",
+        label: autoSaveEnabled ? "Disable Autosave" : "Enable Autosave",
+        run: () => setAutoSaveEnabled((prev) => !prev)
+      },
+      {
         id: "search",
         label: showSearchPanel ? "Hide Search Panel" : "Show Search Panel",
         shortcut: "Ctrl+F",
@@ -775,6 +990,7 @@ export default function App() {
     currentFile,
     currentProject,
     theme,
+    autoSaveEnabled,
     showSearchPanel,
     handleSave,
     handleRun,
@@ -1106,6 +1322,81 @@ export default function App() {
             </span>
             <span>Search</span>
           </button>
+          <div className="popover">
+            <button
+              onClick={() => setShowRunConfig((prev) => !prev)}
+              className="icon-btn"
+              disabled={!currentProject}
+            >
+              <span className="icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" focusable="false">
+                  <path
+                    d="M4 6a2 2 0 0 1 2-2h8l6 6v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6zm9 0v4h4l-4-4zM8 12h8v2H8v-2zm0 4h6v2H8v-2z"
+                    fill="currentColor"
+                  />
+                </svg>
+              </span>
+              <span>Run Config</span>
+            </button>
+            {showRunConfig && (
+              <div className="popover-card">
+                <div className="popover-title">Run Config</div>
+                <select
+                  className="input"
+                  value={runConfigFile}
+                  onChange={(event) => setRunConfigFile(event.target.value)}
+                >
+                  <option value="">Use current file</option>
+                  {files.map((file) => (
+                    <option key={file} value={file}>
+                      {file}
+                    </option>
+                  ))}
+                </select>
+                <div className="popover-actions">
+                  <button
+                    onClick={async () => {
+                      if (!currentProject) return;
+                      const response = await api.setRunConfig(currentProject, runConfigFile);
+                      if (!response.success) {
+                        setStatusMessage(response.message || "Failed to save run config");
+                        setStatusType("error");
+                        return;
+                      }
+                      setStatusMessage("Run config saved");
+                      setStatusType("success");
+                      setShowRunConfig(false);
+                    }}
+                  >
+                    Save
+                  </button>
+                  <button
+                    className="ghost"
+                    onClick={() => {
+                      setShowRunConfig(false);
+                    }}
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+          <button
+            onClick={() => setAutoSaveEnabled((prev) => !prev)}
+            className="icon-btn"
+            title={autoSaveEnabled ? "Disable autosave" : "Enable autosave"}
+          >
+            <span className="icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" focusable="false">
+                <path
+                  d="M5 3h11l3 3v6h-2V7h-4V5H5v14h6v2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zm9 9a5 5 0 1 1-3.536 8.536L8 22l-2-2 2.464-2.464A5 5 0 0 1 14 12zm0 2a3 3 0 1 0 2.121 5.121A3 3 0 0 0 14 14z"
+                  fill="currentColor"
+                />
+              </svg>
+            </span>
+            <span>{autoSaveEnabled ? "Autosave" : "Autosave Off"}</span>
+          </button>
           <button onClick={() => setTheme(theme === "dark" ? "light" : "dark")} className="icon-btn">
             <span className="icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" focusable="false">
@@ -1307,7 +1598,16 @@ export default function App() {
               placeholder="Standard input (stdin)"
               rows={3}
             />
-            <pre>{output || "Run your code to see output."}</pre>
+            {outputMode === "preview" ? (
+              <iframe
+                title="Preview"
+                className="preview-frame"
+                sandbox="allow-scripts"
+                srcDoc={previewHtml}
+              />
+            ) : (
+              <pre>{output || "Run your code to see output."}</pre>
+            )}
           </div>
         </section>
       </div>

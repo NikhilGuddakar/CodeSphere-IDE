@@ -1,0 +1,45 @@
+services:
+  db:
+    image: mysql:8.0
+    container_name: codesphere-db
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-Root@1234}
+      MYSQL_DATABASE: ${DB_NAME:-codesphere}
+    ports:
+      - "3306:3306"
+    volumes:
+      - db_data:/var/lib/mysql
+
+  backend:
+    build:
+      context: ./Backend
+    container_name: codesphere-backend
+    environment:
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_NAME: ${DB_NAME:-codesphere}
+      DB_USER: ${DB_USER:-root}
+      DB_PASSWORD: ${DB_PASSWORD:-Root@1234}
+      CODESPHERE_WORKSPACE: /workspace
+      SHOW_SQL: "false"
+    ports:
+      - "8080:8080"
+    volumes:
+      - workspace_data:/workspace
+    depends_on:
+      - db
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8080}
+    container_name: codesphere-frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+
+volumes:
+  db_data:
+  workspace_data:

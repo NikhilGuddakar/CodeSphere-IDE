@@ -4,15 +4,23 @@ import jakarta.persistence.*;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "projects")
+@Table(
+    name = "projects",
+    uniqueConstraints = {
+        @UniqueConstraint(columnNames = {"user_id", "name"})
+    }
+)
 public class ProjectEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(unique = true, nullable = false)
+    @Column(nullable = false)
     private String name;
+
+    @Column(name = "main_file")
+    private String mainFile;
 
     private LocalDateTime createdAt = LocalDateTime.now();
 
@@ -59,5 +67,13 @@ public class ProjectEntity {
 
     public void setCreatedAt(LocalDateTime createdAt) {
         this.createdAt = createdAt;
+    }
+
+    public String getMainFile() {
+        return mainFile;
+    }
+
+    public void setMainFile(String mainFile) {
+        this.mainFile = mainFile;
     }
 }

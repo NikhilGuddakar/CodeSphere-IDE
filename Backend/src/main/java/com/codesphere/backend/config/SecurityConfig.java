@@ -1,6 +1,8 @@
 package com.codesphere.backend.config;
 
 import com.codesphere.backend.security.JwtFilter;
+import com.codesphere.backend.security.RateLimitFilter;
+import com.codesphere.backend.security.RequestLoggingFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -28,8 +30,11 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> auth
             	.requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 .requestMatchers("/api/auth/**").permitAll()
+                .requestMatchers("/api/health").permitAll()
                 .anyRequest().authenticated()
             )
+            .addFilterBefore(requestLoggingFilter(), UsernamePasswordAuthenticationFilter.class)
+            .addFilterBefore(rateLimitFilter(), UsernamePasswordAuthenticationFilter.class)
             .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
@@ -38,5 +43,15 @@ public class SecurityConfig {
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
+    }
+
+    @Bean
+    public RateLimitFilter rateLimitFilter() {
+        return new RateLimitFilter();
+    }
+
+    @Bean
+    public RequestLoggingFilter requestLoggingFilter() {
+        return new RequestLoggingFilter();
     }
 }

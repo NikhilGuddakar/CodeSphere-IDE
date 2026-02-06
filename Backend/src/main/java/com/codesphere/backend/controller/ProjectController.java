@@ -2,6 +2,7 @@ package com.codesphere.backend.controller;
 
 import com.codesphere.backend.dto.ApiResponse;
 import com.codesphere.backend.dto.ProjectRequest;
+import com.codesphere.backend.dto.RunConfigRequest;
 import com.codesphere.backend.entity.ProjectEntity;
 import com.codesphere.backend.entity.UserEntity;
 import com.codesphere.backend.repository.ExecutionRepository;
@@ -16,6 +17,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.Authentication;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
+import jakarta.validation.Valid;
 
 
 import java.io.IOException;
@@ -26,12 +28,10 @@ import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.List;
 
+import com.codesphere.backend.util.WorkspacePaths;
 @RestController
 @RequestMapping("/api/projects")
 public class ProjectController {
-
-	private static final String BASE_DIR =
-	        System.getProperty("user.home") + "/codesphere_workspace";
 
     private final ProjectRepository projectRepository;
     private final UserRepository userRepository;
@@ -51,28 +51,20 @@ public class ProjectController {
 
     @PostMapping
     public ResponseEntity<ApiResponse<String>> createProject(
-            @RequestBody ProjectRequest request) throws IOException {
-    	System.out.println("CREATE PROJECT CONTROLLER HIT");
-
+            @Valid @RequestBody ProjectRequest request) throws IOException {
     	Authentication auth =
     	        SecurityContextHolder.getContext().getAuthentication();
-    	System.out.println("AUTH USER = " + auth.getName());
     	String username = auth.getName();
 
     	UserEntity user = userRepository.findByUsername(username)
     	        .orElseThrow(() -> new RuntimeException("User not found"));
 
-    	
-//    	String username = SecurityContextHolder
-//    	        .getContext()
-//    	        .getAuthentication()
-//    	        .getName();
-//
-//    	UserEntity user = userRepository.findByUsername(username)
-//    	        .orElseThrow(() -> new RuntimeException("User not found"));
-
-
-        String projectName = request.getName().trim();
+        String projectName = request == null ? "" : request.getName();
+        projectName = projectName == null ? "" : projectName.trim();
+        if (!WorkspacePaths.isSafeProjectName(projectName)) {
+            return ResponseEntity.badRequest()
+                .body(new ApiResponse<>(false, "Invalid project name", null));
+        }
 
         // 1 Check DB
         if (projectRepository.existsByNameAndUser(projectName, user)) {
@@ -89,10 +81,10 @@ public class ProjectController {
 
 
         // 3 Create folder
-        Path basePath = Path.of(BASE_DIR);
+        Path basePath = WorkspacePaths.userDir(user);
         Files.createDirectories(basePath);
 
-        Path projectPath = basePath.resolve(projectName);
+        Path projectPath = WorkspacePaths.projectDir(user, projectName);
         Files.createDirectories(projectPath);
 
         
@@ -157,7 +149,7 @@ public class ProjectController {
             String cleanupWarning = null;
             try {
                 // Delete files on disk
-                Path projectPath = Path.of(BASE_DIR, projectName);
+                Path projectPath = WorkspacePaths.projectDir(user, projectName);
                 if (Files.exists(projectPath)) {
                     Files.walkFileTree(projectPath, new SimpleFileVisitor<Path>() {
                         @Override
@@ -191,6 +183,73 @@ public class ProjectController {
             return ResponseEntity.internalServerError()
                 .body(new ApiResponse<>(false, "Failed to delete project: " + e.getMessage(), null));
         }
+    }
+
+    @GetMapping("/{projectName}/run-config")
+    public ResponseEntity<ApiResponse<String>> getRunConfig(@PathVariable String projectName) {
+        String username = SecurityContextHolder
+            .getContext()
+            .getAuthentication()
+            .getName();
+
+        UserEntity user = userRepository.findByUsername(username).orElse(null);
+        if (user == null) {
+            return ResponseEntity.status(401)
+                .body(new ApiResponse<>(false, "User not found", null));
+        }
+
+        ProjectEntity project = projectRepository
+            .findByNameAndUser(projectName, user)
+            .orElse(null);
+        if (project == null) {
+            return ResponseEntity.status(404)
+                .body(new ApiResponse<>(false, "Project not found", null));
+        }
+
+        return ResponseEntity.ok(
+            new ApiResponse<>(true, "Run config fetched", project.getMainFile())
+        );
+    }
+
+    @PutMapping("/{projectName}/run-config")
+    public ResponseEntity<ApiResponse<String>> setRunConfig(
+            @PathVariable String projectName,
+            @Valid @RequestBody RunConfigRequest request) {
+
+        String username = SecurityContextHolder
+            .getContext()
+            .getAuthentication()
+            .getName();
+
+        UserEntity user = userRepository.findByUsername(username).orElse(null);
+        if (user == null) {
+            return ResponseEntity.status(401)
+                .body(new ApiResponse<>(false, "User not found", null));
+        }
+
+        ProjectEntity project = projectRepository
+            .findByNameAndUser(projectName, user)
+            .orElse(null);
+        if (project == null) {
+            return ResponseEntity.status(404)
+                .body(new ApiResponse<>(false, "Project not found", null));
+        }
+
+        String mainFile = request.getMainFile();
+        if (mainFile != null && !mainFile.isBlank()) {
+            if (!WorkspacePaths.isSafeFilename(mainFile)) {
+                return ResponseEntity.badRequest()
+                    .body(new ApiResponse<>(false, "Invalid filename", null));
+            }
+            project.setMainFile(mainFile.trim());
+        } else {
+            project.setMainFile(null);
+        }
+
+        projectRepository.save(project);
+        return ResponseEntity.ok(
+            new ApiResponse<>(true, "Run config saved", project.getMainFile())
+        );
     }
     
     
